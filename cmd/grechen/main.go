@@ -56,7 +56,7 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "usage: grechen <command> [args...]\n")
-		fmt.Fprintf(os.Stderr, "commands: setup | <natural language> | goodnight | review | today | commitments | thats-wrong\n")
+		fmt.Fprintf(os.Stderr, "commands: <natural language> | goodnight | review | today | commitments | todo | projects | people | thats-wrong | setup\n")
 		os.Exit(1)
 	}
 
@@ -75,6 +75,12 @@ func main() {
 		handlerErr = c.HandleToday()
 	case "commitments":
 		handlerErr = c.HandleCommitments()
+	case "todo":
+		handlerErr = c.HandleTodo()
+	case "projects":
+		handlerErr = c.HandleProjects()
+	case "people":
+		handlerErr = c.HandlePeople()
 	case "thats-wrong":
 		handlerErr = c.HandleThatsWrong()
 	default:

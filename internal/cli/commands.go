@@ -1,8 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/heywinit/grechen/internal/core"
 )
 
 // HandleToday shows situational awareness for today
@@ -111,4 +117,186 @@ func (c *CLI) HandleThatsWrong() error {
 	// In future: read from stdin or use Charm form
 	// For now, this is a placeholder
 	return fmt.Errorf("correction flow not fully implemented")
+}
+
+// HandleTodo shows all remaining todos from previous days
+func (c *CLI) HandleTodo() error {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	commitments, err := c.store.ListOpenCommitmentsFromPreviousDays(today)
+	if err != nil {
+		return err
+	}
+
+	if len(commitments) == 0 {
+		fmt.Println("no remaining todos from previous days")
+		return nil
+	}
+
+	fmt.Printf("remaining todos (%d):\n", len(commitments))
+	for i, c := range commitments {
+		daysAgo := int(today.Sub(c.CreatedAt).Hours() / 24)
+		daysUntil := int(c.Expectation.Deadline.Sub(now).Hours() / 24)
+		fmt.Printf("  %d. %s → %s (created %d days ago, due %s, %d days left)\n",
+			i+1,
+			c.PersonID,
+			c.Expectation.Description,
+			daysAgo,
+			c.Expectation.Deadline.Format("2006-01-02"),
+			daysUntil)
+		if c.ProjectID != "" {
+			fmt.Printf("     project: %s\n", c.ProjectID)
+		}
+	}
+
+	return nil
+}
+
+// HandleProjects shows projects and allows editing
+func (c *CLI) HandleProjects() error {
+	projects, err := c.store.ListProjects()
+	if err != nil {
+		return err
+	}
+
+	if len(projects) == 0 {
+		fmt.Println("no projects")
+		fmt.Println("projects are created automatically when mentioned in commitments")
+		return nil
+	}
+
+	fmt.Println("projects:")
+	for i, p := range projects {
+		priority := "normal"
+		if p.Priority > 0 {
+			priority = "high"
+		} else if p.Priority < 0 {
+			priority = "low"
+		}
+		fmt.Printf("  %d. %s (priority: %s)\n", i+1, p.ID, priority)
+		if len(p.Metadata) > 0 {
+			fmt.Printf("     metadata: %v\n", p.Metadata)
+		}
+	}
+
+	// Check if user wants to edit
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("\nedit project? (enter number or 'n' to skip): ")
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(strings.ToLower(input))
+
+	if input == "n" || input == "" {
+		return nil
+	}
+
+	idx, err := strconv.Atoi(input)
+	if err != nil || idx < 1 || idx > len(projects) {
+		fmt.Println("invalid selection")
+		return nil
+	}
+
+	project := projects[idx-1]
+	return c.editProject(project, reader)
+}
+
+func (c *CLI) editProject(project *core.Project, reader *bufio.Reader) error {
+	fmt.Printf("\nediting project: %s\n", project.ID)
+	fmt.Println("(press enter to keep current value)")
+
+	// Edit priority
+	fmt.Printf("priority (current: %d, enter number or 'high'/'normal'/'low'): ", project.Priority)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(strings.ToLower(input))
+
+	if input != "" {
+		switch input {
+		case "high":
+			project.Priority = 1
+		case "low":
+			project.Priority = -1
+		case "normal", "0":
+			project.Priority = 0
+		default:
+			if prio, err := strconv.Atoi(input); err == nil {
+				project.Priority = prio
+			}
+		}
+	}
+
+	// Save
+	if err := c.store.SaveProject(project); err != nil {
+		return fmt.Errorf("failed to save project: %w", err)
+	}
+
+	fmt.Printf("updated project: %s (priority: %d)\n", project.ID, project.Priority)
+	return nil
+}
+
+// HandlePeople shows people and allows editing
+func (c *CLI) HandlePeople() error {
+	people, err := c.store.ListPeople()
+	if err != nil {
+		return err
+	}
+
+	if len(people) == 0 {
+		fmt.Println("no people")
+		fmt.Println("people are created automatically when mentioned in commitments")
+		return nil
+	}
+
+	fmt.Println("people:")
+	for i, p := range people {
+		fmt.Printf("  %d. %s (id: %s)\n", i+1, p.Name, p.ID)
+		if len(p.Metadata) > 0 {
+			fmt.Printf("     metadata: %v\n", p.Metadata)
+		}
+	}
+
+	// Check if user wants to edit
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("\nedit person? (enter number or 'n' to skip): ")
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(strings.ToLower(input))
+
+	if input == "n" || input == "" {
+		return nil
+	}
+
+	idx, err := strconv.Atoi(input)
+	if err != nil || idx < 1 || idx > len(people) {
+		fmt.Println("invalid selection")
+		return nil
+	}
+
+	person := people[idx-1]
+	return c.editPerson(person, reader)
+}
+
+func (c *CLI) editPerson(person *core.Person, reader *bufio.Reader) error {
+	fmt.Printf("\nediting person: %s\n", person.ID)
+	fmt.Println("(press enter to keep current value)")
+
+	// Edit name
+	fmt.Printf("name (current: %s): ", person.Name)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input != "" {
+		person.Name = input
+	}
+
+	// Initialize metadata if needed
+	if person.Metadata == nil {
+		person.Metadata = make(map[string]any)
+	}
+
+	// Save
+	if err := c.store.SavePerson(person); err != nil {
+		return fmt.Errorf("failed to save person: %w", err)
+	}
+
+	fmt.Printf("updated person: %s (name: %s)\n", person.ID, person.Name)
+	return nil
 }
