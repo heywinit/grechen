@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/heywinit/grechen/internal/core"
 	"github.com/heywinit/grechen/internal/extract"
 	"github.com/heywinit/grechen/internal/patterns"
@@ -39,8 +40,16 @@ func (c *CLI) HandleInput(input string) error {
 		Raw:       input,
 	}
 
+	// Show spinner while LLM is processing
+	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	s.Prefix = "processing "
+	s.Start()
+
 	// Extract candidates
 	candidates, questions, err := c.extractor.Extract(input)
+	
+	s.Stop()
+	
 	if err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
