@@ -30,6 +30,19 @@ func (c *CLI) HandleToday() error {
 	fmt.Printf("  progress entries: %d\n", stats.ProgressEntries)
 	fmt.Printf("  commitment updates: %d\n", stats.CommitmentUpdates)
 
+	// Show today's logs
+	content, err := c.store.ReadDailyFile(today)
+	if err != nil {
+		return err
+	}
+	logs := extractLogs(content)
+	if len(logs) > 0 {
+		fmt.Println("\nlogs:")
+		for _, log := range logs {
+			fmt.Printf("  %s\n", log)
+		}
+	}
+
 	// Show open commitments
 	commitments, err := c.store.ListOpenCommitments()
 	if err != nil {
@@ -49,6 +62,47 @@ func (c *CLI) HandleToday() error {
 	}
 
 	return nil
+}
+
+// extractLogs extracts log entries from daily file content
+func extractLogs(content string) []string {
+	lines := strings.Split(content, "\n")
+	inLogsSection := false
+	var logs []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "## logs" {
+			inLogsSection = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "## ") {
+			inLogsSection = false
+			continue
+		}
+		if inLogsSection && strings.HasPrefix(trimmed, "- ") {
+			// Format: "- HHMM text" -> display as "HH:MM text"
+			if len(trimmed) > 2 {
+				logText := trimmed[2:] // Remove "- "
+				// Try to format time if it starts with 4 digits (HHMM format)
+				if len(logText) >= 4 {
+					timePart := logText[:4]
+					rest := logText[4:]
+					// Check if first 4 chars are digits
+					if len(timePart) == 4 && strings.Trim(timePart, "0123456789") == "" {
+						// Format as HH:MM
+						formatted := timePart[:2] + ":" + timePart[2:]
+						logs = append(logs, formatted+" "+strings.TrimSpace(rest))
+						continue
+					}
+				}
+				// If no time format detected, just show the log as-is
+				logs = append(logs, strings.TrimSpace(logText))
+			}
+		}
+	}
+
+	return logs
 }
 
 // HandleCommitments shows all commitments
