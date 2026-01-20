@@ -35,9 +35,9 @@ func NewGeminiProvider() (*GeminiProvider, error) {
 	}, nil
 }
 
-func (g *GeminiProvider) ExtractJSON(input string) ([]byte, error) {
+func (g *GeminiProvider) ExtractJSON(input string, now time.Time) ([]byte, error) {
 	// Build the prompt for structured extraction
-	prompt := buildGeminiExtractionPrompt(input)
+	prompt := buildGeminiExtractionPrompt(input, now)
 
 	// Prepare the request body
 	reqBody := map[string]any{
@@ -52,7 +52,7 @@ func (g *GeminiProvider) ExtractJSON(input string) ([]byte, error) {
 		},
 		"generationConfig": map[string]any{
 			"temperature":     0.1,
-			"maxOutputTokens": 500,
+			"maxOutputTokens": 2000,
 			"responseMimeType": "application/json",
 		},
 	}
@@ -92,6 +92,7 @@ func (g *GeminiProvider) ExtractJSON(input string) ([]byte, error) {
 					Text string `json:"text"`
 				} `json:"parts"`
 			} `json:"content"`
+			FinishReason string `json:"finishReason"`
 		} `json:"candidates"`
 	}
 
@@ -103,8 +104,14 @@ func (g *GeminiProvider) ExtractJSON(input string) ([]byte, error) {
 		return nil, fmt.Errorf("no content in response")
 	}
 
+	// Check if response was truncated
+	if geminiResp.Candidates[0].FinishReason == "MAX_TOKENS" {
+		return nil, fmt.Errorf("response truncated due to token limit (increase maxOutputTokens)")
+	}
+
 	// Extract JSON from response
 	content := geminiResp.Candidates[0].Content.Parts[0].Text
+	rawContent := content // Keep original for error messages
 	
 	// Remove markdown code blocks if present
 	contentBytes := []byte(content)
@@ -119,18 +126,73 @@ func (g *GeminiProvider) ExtractJSON(input string) ([]byte, error) {
 	contentBytes = bytes.TrimSpace(contentBytes)
 	
 	// Try to extract JSON if wrapped in text
+	// Use balanced brace matching for more robust extraction
 	contentStr := string(contentBytes)
-	if idx := strings.Index(contentStr, "{"); idx >= 0 {
-		if endIdx := strings.LastIndex(contentStr, "}"); endIdx > idx {
-			contentBytes = []byte(contentStr[idx : endIdx+1])
+	startIdx := strings.Index(contentStr, "{")
+	if startIdx >= 0 {
+		// Find matching closing brace by counting braces
+		braceCount := 0
+		endIdx := -1
+		for i := startIdx; i < len(contentStr); i++ {
+			if contentStr[i] == '{' {
+				braceCount++
+			} else if contentStr[i] == '}' {
+				braceCount--
+				if braceCount == 0 {
+					endIdx = i
+					break
+				}
+			}
 		}
+		if endIdx > startIdx {
+			contentBytes = []byte(contentStr[startIdx : endIdx+1])
+		} else {
+			// JSON appears incomplete - return error with full context
+			rawContentStr := rawContent
+			if len(rawContentStr) > 1000 {
+				rawContentStr = rawContentStr[:1000] + "... (truncated for display)"
+			}
+			return nil, fmt.Errorf("incomplete JSON response (unmatched braces, found %d open)\n  extracted so far: %q\n  full response: %q", braceCount, string(contentBytes[startIdx:]), rawContentStr)
+		}
+	}
+	
+	// Validate that we have some content
+	if len(contentBytes) == 0 {
+		rawContentStr := rawContent
+		if len(rawContentStr) > 1000 {
+			rawContentStr = rawContentStr[:1000] + "... (truncated for display)"
+		}
+		return nil, fmt.Errorf("no JSON content extracted from LLM response\n  raw response: %q", rawContentStr)
+	}
+	
+	// Validate JSON is complete by attempting to parse it
+	var testJSON map[string]any
+	if err := json.Unmarshal(contentBytes, &testJSON); err != nil {
+		rawContentStr := rawContent
+		if len(rawContentStr) > 1000 {
+			rawContentStr = rawContentStr[:1000] + "... (truncated for display)"
+		}
+		return nil, fmt.Errorf("extracted JSON is invalid: %w\n  raw response: %q", err, rawContentStr)
 	}
 	
 	return contentBytes, nil
 }
 
-func buildGeminiExtractionPrompt(input string) string {
+func buildGeminiExtractionPrompt(input string, now time.Time) string {
+	today := now.Format("2006-01-02")
+	dayOfWeek := now.Format("Monday")
+	currentTime := now.Format("15:04")
+	dateReadable := now.Format("January 2, 2006")
+	tomorrow := now.AddDate(0, 0, 1).Format("2006-01-02")
+	nextWeek := now.AddDate(0, 0, 7).Format("2006-01-02")
+	
 	return fmt.Sprintf(`You are a structured data extraction assistant for a personal task management system. Extract information from the user's natural language input and return ONLY valid JSON.
+
+Current context:
+- Date: %s (%s)
+- Day of week: %s
+- Current time: %s
+- Date (readable): %s
 
 Input: "%s"
 
@@ -156,10 +218,17 @@ Guidelines:
 - If it's scheduling (meet, call, event, appointment), use type "event"
 - If it's a correction (that's wrong, actually, correction), use type "correction"
 - Otherwise, use type "log"
-- Extract dates relative to today if needed (tomorrow = today + 1 day, next week = today + 7 days)
+- Extract dates relative to today (%s, %s) if needed:
+  * "today" = %s
+  * "tomorrow" = %s
+  * "next week" = %s
+  * "next few hours" or "later today" = %s (same day, use current time %s to determine if still possible)
+  * "this week" = calculate based on current day (%s) - week runs Monday-Sunday
+  * "next Monday/Tuesday/etc" = next occurrence of that day
+  * Always use YYYY-MM-DD format for dates
 - Be confident (>= 0.7) if you're sure, lower if uncertain
 - Include questions array if key info is missing (e.g., missing person, deadline, project)
-- For commitments, infer project from context if mentioned (caresad, farmer, kaifu, soldecoder, etc.)
+- For commitments, infer project from context if mentioned (kaifu, octomod, etc.)
 
-Return ONLY the JSON object, no other text.`, input)
+Return ONLY the JSON object, no other text.`, today, dayOfWeek, dayOfWeek, currentTime, dateReadable, input, today, dayOfWeek, today, tomorrow, nextWeek, today, currentTime, dayOfWeek)
 }

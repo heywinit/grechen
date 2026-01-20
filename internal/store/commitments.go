@@ -117,6 +117,26 @@ func (s *Store) ListCommitmentsDueBefore(deadline time.Time) ([]*core.Commitment
 	return filtered, nil
 }
 
+// ListOpenCommitmentsFromPreviousDays returns open commitments created before today
+func (s *Store) ListOpenCommitmentsFromPreviousDays(today time.Time) ([]*core.Commitment, error) {
+	all, err := s.loadCommitments()
+	if err != nil {
+		return nil, err
+	}
+
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+
+	var filtered []*core.Commitment
+	for _, c := range all {
+		// Open or updated status, and created before today
+		if (c.Status == core.StatusOpen || c.Status == core.StatusUpdated) && c.CreatedAt.Before(todayStart) {
+			filtered = append(filtered, c)
+		}
+	}
+
+	return filtered, nil
+}
+
 func (s *Store) loadCommitments() ([]*core.Commitment, error) {
 	filename := filepath.Join(s.MetaDir(), commitmentsFile)
 	data, err := os.ReadFile(filename)

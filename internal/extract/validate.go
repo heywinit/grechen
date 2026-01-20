@@ -12,7 +12,13 @@ import (
 func ValidateCandidate(rawJSON []byte) (*core.Candidate, error) {
 	var candidate core.Candidate
 	if err := json.Unmarshal(rawJSON, &candidate); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
+		jsonStr := string(rawJSON)
+		// Show more context for debugging
+		displayStr := jsonStr
+		if len(displayStr) > 1000 {
+			displayStr = displayStr[:1000] + "... (truncated for display)"
+		}
+		return nil, fmt.Errorf("invalid JSON: %w\n  received: %q", err, displayStr)
 	}
 
 	// Check confidence threshold
