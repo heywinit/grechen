@@ -58,7 +58,7 @@ func (c *CLI) HandleGoodnight() error {
 
 		// For now, just append questions to notes
 		// In future: interactive response collection
-		notes := fmt.Sprintf("goodnight questions:\n")
+		notes := "goodnight questions:\n"
 		for i, q := range questions {
 			notes += fmt.Sprintf("%d. %s\n", i+1, q.Text)
 		}
