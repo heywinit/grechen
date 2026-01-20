@@ -56,7 +56,7 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "usage: grechen <command> [args...]\n")
-		fmt.Fprintf(os.Stderr, "commands: <natural language> | goodnight | review | today | commitments | thats-wrong\n")
+		fmt.Fprintf(os.Stderr, "commands: setup | <natural language> | goodnight | review | today | commitments | thats-wrong\n")
 		os.Exit(1)
 	}
 
@@ -65,6 +65,8 @@ func main() {
 	// Route to appropriate handler
 	var handlerErr error
 	switch command {
+	case "setup":
+		handlerErr = c.HandleSetup()
 	case "goodnight":
 		handlerErr = c.HandleGoodnight()
 	case "review":
