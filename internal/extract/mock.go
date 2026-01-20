@@ -52,8 +52,8 @@ func (m *MockExtractor) Extract(input string) ([]core.Candidate, []core.Question
 		}
 
 		// Simple extraction (mock)
-		if strings.Contains(inputLower, "prof") {
-			candidate.Data["person"] = "prof"
+		if strings.Contains(inputLower, "deep") {
+			candidate.Data["person"] = "deep"
 		}
 		if strings.Contains(inputLower, "tomorrow") {
 			tomorrow := time.Now().AddDate(0, 0, 1)
@@ -103,7 +103,7 @@ func extractDescription(input string) string {
 
 func extractProject(input string) string {
 	inputLower := strings.ToLower(input)
-	projects := []string{"caresad", "farmer", "kaifu", "soldecoder"}
+	projects := []string{"octomod"}
 	for _, p := range projects {
 		if strings.Contains(inputLower, p) {
 			return p
